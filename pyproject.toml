@@ -1,5 +1,5 @@
 [project]
-name = "sentinel-guard"
+name = "agent-tool-call-guard"
 version = "0.1.0"
 description = "A deterministic, provenance- and contract-based defense for the SENTINEL agent-safety benchmark"
 requires-python = ">=3.12"

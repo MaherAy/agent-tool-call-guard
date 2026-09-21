@@ -1,0 +1,5 @@
+# Extra dependencies for the benchmark adapters (not needed by the defense itself).
+torch          # CPU build is enough: pip install torch --index-url https://download.pytorch.org/whl/cpu
+transformers
+detect-secrets
+pyyaml

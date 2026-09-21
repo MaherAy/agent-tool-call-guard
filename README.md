@@ -1,8 +1,8 @@
-# sentinel-guard
+# agent-tool-call-guard
 
 A deterministic defense for the [SENTINEL](https://github.com/Skan22/Sentinel_Starter_Kit) agent-safety benchmark
 (IndabaX Tunisia 2026). It sits between the agent's candidate action and the tool gateway and answers
-`allow | block | escalate | rewrite` for every action. **`sentinel-guard` is a working name.**
+`allow | block | escalate | rewrite` for every action.
 
 The rule it enforces: *an action runs only if trusted evidence explains it.* The tool must be allowed by policy and
 asked for by the user's goal, the ids it acts on must come from trusted sources, and no protected value may leave
@@ -64,7 +64,22 @@ sentinel run --scenario <yaml> --defense-url http://127.0.0.1:8080
 
 Layers can be ablated with `GUARD_DISABLE=contract,grounding,dlp,reconstruction,memory_rules`.
 
-## Results so far (mock agent, kit commit `c86681a`, 21/09/2026)
+## Results on the updated kit (mock agent, kit commit `dd2e5fe`, 21/09/2026)
+
+The updated kit adds 21 exfiltration scenarios (40 public scenarios: 31 attacks, 9 benign; plus 9 validation). Same
+setup as below; reproduce with `scripts/eval_with_kit.py` pointed at that kit. Detailed comparison with other layers:
+[docs/existing_work_and_benchmark.md](docs/existing_work_and_benchmark.md).
+
+| Defense | BTU | ASR | FBR | UER | TUI | ECE |
+|---|---|---|---|---|---|---|
+| `keyword` (baseline) | 0.778 | 0.226 | 0.136 | 0.000 | 0.832 | 0.081 |
+| `heuristic_risk` (baseline) | 1.000 | 0.677 | 0.000 | 0.006 | 0.750 | 0.050 |
+| `provenance` (baseline) | 1.000 | 0.000 | 0.222 | 0.000 | 1.000 | 0.197 |
+| **agent-tool-call-guard** | 1.000 | 0.000 | 0.000 | 0.000 | 0.842 | 0.012 |
+
+On the 9 validation scenarios: ASR 0.000, BTU 1.000. Not yet run against Qwen3-8B.
+
+## Results on the previous kit (mock agent, kit commit `c86681a`, 21/09/2026)
 
 Reproduce with `scripts/eval_with_kit.py`. Public split = 19 scenarios, validation split = 9.
 
@@ -73,10 +88,10 @@ Reproduce with `scripts/eval_with_kit.py`. Public split = 19 scenarios, validati
 | `keyword` (baseline) | public | 0.778 | 0.700 | 0.368 | 0.046 | 0.000 |
 | `provenance` (baseline) | public | 1.000 | 0.000 | 0.000 | 0.046 | 0.000 |
 | `heuristic_risk` (baseline) | public | 1.000 | 0.000 | 0.000 | 0.000 | 0.011 |
-| **sentinel-guard** | public | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| **agent-tool-call-guard** | public | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 | `provenance` (baseline) | validation | 1.000 | 0.250 | 0.111 | 0.000 | 0.000 |
 | `heuristic_risk` (baseline) | validation | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 |
-| **sentinel-guard** | validation | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| **agent-tool-call-guard** | validation | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 
 Also against the kit's adaptive mutation attacker (`--attacker mutation --attack-mode adaptive`): ASR 0 on both
 splits. Decision time inside the service (from the sidecar trace, 139 decisions): median 1.3 ms, p95 2.7 ms, max 5.3 ms;
@@ -103,6 +118,10 @@ only the ceiling and confirmation) does not. **We expected removing the contract
 forbidden action is inside `allowed_tools`; on the mock it does not, because R9 escalates and the simulated human
 denies.** The contract still turns those cases into an immediate, explained block instead of a request to a human,
 but the published scenarios cannot show its marginal value. Purpose-built probes are the next step.
+
+## Existing work and benchmark
+
+[docs/existing_work_and_benchmark.md](docs/existing_work_and_benchmark.md) surveys open-source defense layers and benchmarks the ones that can run offline (Heimdall's deterministic layers, an open-source injection classifier, a generic secret scanner) against this defense on the updated kit. Reproduce with `benchmarks/run_external.py`.
 
 ## Defense rules
 

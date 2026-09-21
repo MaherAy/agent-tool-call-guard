@@ -1,0 +1,149 @@
+{
+  "table": {
+    "guard": {
+      "public": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 31,
+          "benign_count": 9,
+          "brier": 0.047183253588516744,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 209,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.01229665071770333,
+          "escalation_precision": null,
+          "escalation_rate": 0.0,
+          "fbr": 0.0,
+          "latency_median_ms": 4.292,
+          "latency_p95_ms": 19.039,
+          "scenario_count": 40,
+          "tui": 0.8421052631578947,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      },
+      "validation": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 4,
+          "benign_count": 5,
+          "brier": 0.00325483870967742,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 31,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.052580645161290324,
+          "escalation_precision": null,
+          "escalation_rate": 0.0,
+          "fbr": 0.0,
+          "latency_median_ms": 3.494,
+          "latency_p95_ms": 23.622,
+          "scenario_count": 9,
+          "tui": 1.0,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      }
+    },
+    "heimdall_L0": {
+      "public": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 31,
+          "benign_count": 9,
+          "brier": 0.10453685446009389,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 213,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.05633802816901408,
+          "escalation_precision": 1.0,
+          "escalation_rate": 0.023474178403755867,
+          "fbr": 0.0,
+          "latency_median_ms": 8.866,
+          "latency_p95_ms": 18.509,
+          "scenario_count": 40,
+          "tui": 0.8014184397163121,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      },
+      "validation": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 4,
+          "benign_count": 5,
+          "brier": 0.045594354838709675,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 31,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.05016129032258065,
+          "escalation_precision": 1.0,
+          "escalation_rate": 0.03225806451612903,
+          "fbr": 0.0,
+          "latency_median_ms": 8.138,
+          "latency_p95_ms": 23.775,
+          "scenario_count": 9,
+          "tui": 0.875,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      }
+    },
+    "heimdall_L0_L1": {
+      "public": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 31,
+          "benign_count": 9,
+          "brier": 0.10059914981220656,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 213,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.02361643192488265,
+          "escalation_precision": 1.0,
+          "escalation_rate": 0.018779342723004695,
+          "fbr": 0.0,
+          "latency_median_ms": 8.931,
+          "latency_p95_ms": 21.586,
+          "scenario_count": 40,
+          "tui": 0.8014184397163121,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      },
+      "validation": {
+        "metrics": {
+          "asr": 0.0,
+          "attack_count": 4,
+          "benign_count": 5,
+          "brier": 0.03531342483870968,
+          "btu": 1.0,
+          "cvr": 0.0,
+          "decisions": 31,
+          "defense_errors": 0,
+          "dfi": 1.0,
+          "ece": 0.05675161290322581,
+          "escalation_precision": null,
+          "escalation_rate": 0.0,
+          "fbr": 0.0,
+          "latency_median_ms": 8.958,
+          "latency_p95_ms": 24.155,
+          "scenario_count": 9,
+          "tui": 0.875,
+          "uer": 0.0
+        },
+        "needs_attention": []
+      }
+    }
+  },
+  "content_level": {}
+}

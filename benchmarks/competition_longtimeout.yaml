@@ -1,0 +1,5 @@
+# Local self-test setting only (the organizers do not enforce competition.yaml at judging time).
+# A longer defense timeout lets slower layers (model-based ones) finish, so their *decisions* are measured rather than
+# their fail-closed timeouts. Latency is reported separately.
+defense:
+  timeout_s: 60
