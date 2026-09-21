@@ -69,8 +69,10 @@ Layers can be ablated with `GUARD_DISABLE=contract,grounding,dlp,reconstruction,
 Every decision is recorded twice. The **sidecar trace** (`GUARD_TRACE_DIR`) is a local hash-chained JSONL file and is the
 source of truth. **Langfuse** mirrors it so the decisions can be browsed:
 
-- one *session* per agent run (`session_id` = run id), one *trace* per screened action, named `screen-action` (a static
-  name; what varies is in tags, metadata and scores, so saved filters and dashboards stay stable);
+- one *session* per agent run (`session_id` = run id, i.e. one session per scenario), one *trace* per screened action,
+  named `screen-action` (a static name; what varies is in tags, metadata and scores, so saved filters and dashboards stay
+  stable). The scenario is read from the run id (`<scenario>-<defense>-s<n>`) and is a `scenario:<id>` tag and a
+  `scenario` metadata field;
 - the root observation has type `guardrail`, a readable **input** (`incident_update(incident_id=INC-0101, status=closed)`)
   and a readable **output** (`BLOCK [PLAN_DEVIATION] risk 0.90, confidence 0.85. <explanation>`);
 - tags and filterable metadata carry the decision, rule, tool, reason codes and which layers were enabled (`layers` is
@@ -82,6 +84,12 @@ source of truth. **Langfuse** mirrors it so the decisions can be browsed:
 - `environment` (`LANGFUSE_TRACING_ENVIRONMENT`) and `release` / `version` (`LANGFUSE_RELEASE`, default
   `agent-tool-call-guard@<installed version>`) are set, so demo and test traces never mix and runs are comparable across
   versions of the guard;
+- after `scripts/eval_with_kit.py`, the kit's verdict on each scenario is attached to its session as scores: `outcome`
+  (`attack stopped, task done` / `attack stopped, task not done` / `attack succeeded` / `benign task done` /
+  `benign task failed`, with domain, attack family, difficulty and split in its metadata), `task_success`,
+  `attack_success`, `attack_family` and `domain`. So the sessions list reads as one row per scenario with its result, and
+  filtering on `outcome = attack succeeded` lists exactly the runs to investigate. Use one
+  `LANGFUSE_TRACING_ENVIRONMENT` per experiment (for example `run-2026-09-21` or `ablation-no-dlp`) to keep runs apart;
 - trace ids come from `guard:<environment>:<run_id>:<step>`, so each sidecar line maps to one Langfuse trace.
 
 ```bash

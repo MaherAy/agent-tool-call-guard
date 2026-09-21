@@ -4,7 +4,10 @@ The hash-chained sidecar trace (guard.trace) stays the source of truth; this mod
 Langfuse project so it can be browsed. It follows Langfuse's tracing best practices:
 
 * One trace = one self-contained unit of work: the screening of ONE candidate action. One *session* = one agent run
-  (`session_id` = run_id), so the steps of a run are grouped in order.
+  (`session_id` = run_id), so the steps of a run are grouped in order. The scenario is read from the run id
+  (`<scenario>-<defense>-s<n>`, the kit's convention) and is a tag and a metadata field, so a scenario can be filtered.
+* After an evaluation, `record_outcomes` attaches the kit's verdict to each session as scores (outcome, task success,
+  attack success, attack family, domain), so the Sessions list reads as one row per scenario with its result.
 * Static, verb-first names (`screen-action`), never dynamic values. What varies (decision, rule, tool, reason codes) is
   in tags, filterable metadata and scores, so names stay stable for dashboards, evaluators and saved filters.
 * Observation type `guardrail` (the most specific type for a check that can stop an action).
@@ -52,6 +55,7 @@ SPAN_NAME = "screen-action"
 _TOKEN = re.compile(r"[^\s\"',;<>()\[\]{}=:]+")
 # Attributes that carry free text. Identifiers that group traces (session id, trace name, tags) are never masked.
 _MASKED_ATTRIBUTES = ("input", "output", "status_message")
+_RUN_ID = re.compile(r"^(?P<scenario>.+)-[^-]+-s\d+$")  # <scenario>-<defense>-s<n>
 
 
 def release() -> str:
@@ -63,6 +67,22 @@ def release() -> str:
         return f"{SERVICE}@{importlib_metadata.version(SERVICE)}"
     except importlib_metadata.PackageNotFoundError:
         return f"{SERVICE}@dev"
+
+
+def scenario_of(run_id: str) -> str:
+    """The scenario a run belongs to, from the kit's run id convention; any other run id stands for itself."""
+    match = _RUN_ID.match(run_id)
+    return match["scenario"] if match else run_id
+
+
+def outcome_label(summary: dict[str, Any]) -> str:
+    """One readable verdict per scenario run, from the kit's own summary."""
+    done = bool(summary.get("task_success"))
+    if summary.get("attack_present"):
+        if summary.get("attack_success"):
+            return "attack succeeded"
+        return "attack stopped, task done" if done else "attack stopped, task not done"
+    return "benign task done" if done else "benign task failed"
 
 
 def describe_action(action: dict[str, Any]) -> str:
@@ -125,6 +145,9 @@ class Telemetry:
     def emit(self, record: dict[str, Any]) -> None:
         return None
 
+    def record_outcomes(self, summaries: list[dict[str, Any]]) -> None:
+        return None
+
     def close(self) -> None:
         return None
 
@@ -153,9 +176,10 @@ class LangfuseTelemetry(Telemetry):
         disabled = sorted(name for name, on in layers.items() if not on)
         run_id = str(record["run_id"])
         trace_id = self._client.create_trace_id(seed=f"guard:{self._environment}:{run_id}:{record['step']}")
-        tags = ["agent-tool-call-guard", f"decision:{decision}", f"rule:{record['rule']}", f"tool:{tool}",
-                *[f"code:{code}" for code in record["codes"][:8]]]
-        filterable = {"run_id": run_id, "step": str(record["step"]), "turn": str(record["turn"]),
+        scenario = scenario_of(run_id)
+        tags = ["agent-tool-call-guard", f"scenario:{scenario}", f"decision:{decision}", f"rule:{record['rule']}",
+                f"tool:{tool}", *[f"code:{code}" for code in record["codes"][:8]]]
+        filterable = {"scenario": scenario, "run_id": run_id, "step": str(record["step"]), "turn": str(record["turn"]),
                       "decision": decision, "rule": str(record["rule"]), "tool": str(tool),
                       "layers": "without:" + ",".join(disabled) if disabled else "all"}
         attempted, verdict = describe_action(action), describe_verdict(record)
@@ -188,6 +212,30 @@ class LangfuseTelemetry(Telemetry):
             span.score_trace(name="confidence", value=float(record["confidence"]), data_type="NUMERIC")
             span.score_trace(name="decision", value=decision, data_type="CATEGORICAL")
             span.end()
+
+    def record_outcomes(self, summaries: list[dict[str, Any]]) -> None:
+        """Attach the kit's verdict on each scenario run to its session. `summaries` are the kit's `*.summary.json`."""
+        for summary in summaries:
+            try:
+                self._record_outcome(summary)
+            except Exception:  # noqa: BLE001
+                log.debug("langfuse outcome export failed", exc_info=True)
+
+    def _record_outcome(self, summary: dict[str, Any]) -> None:
+        session = str(summary["run_id"])[:200]
+        attack = (summary.get("attack_family") or "unknown") if summary.get("attack_present") else "none"
+        detail = {key: summary[key] for key in ("scenario_id", "split", "domain", "attack_family", "difficulty",
+                                                "hard_negative", "steps", "termination") if key in summary}
+        label = outcome_label(summary)
+        score = self._client.create_score
+        common = {"session_id": session, "environment": self._environment}
+        score(name="outcome", value=label, data_type="CATEGORICAL", metadata=detail,
+              comment=f"{summary.get('domain', '?')} / {attack}, {summary.get('steps', '?')} steps", **common)
+        score(name="task_success", value=float(bool(summary.get("task_success"))), data_type="BOOLEAN", **common)
+        score(name="attack_success", value=float(bool(summary.get("attack_success"))), data_type="BOOLEAN", **common)
+        score(name="attack_family", value=str(attack), data_type="CATEGORICAL", **common)
+        if summary.get("domain"):
+            score(name="domain", value=str(summary["domain"]), data_type="CATEGORICAL", **common)
 
     def auth_ok(self) -> bool:
         return bool(self._client.auth_check())

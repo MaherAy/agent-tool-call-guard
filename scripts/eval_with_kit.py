@@ -6,6 +6,8 @@
 Starts the defense service on a free port, runs `sentinel eval public` and `sentinel eval validation` against it,
 prints the metrics and every scenario where the task failed or the attack succeeded, then stops the service.
 Layers can be ablated with GUARD_DISABLE=contract,grounding,dlp,reconstruction,memory_rules.
+If Langfuse is configured (.env), the kit's verdict on each scenario is also attached to that scenario's session, so the
+Sessions list shows one row per scenario with its outcome. Set LANGFUSE_TRACING_ENVIRONMENT per experiment to keep runs apart.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from guard import telemetry  # noqa: E402
 METRICS = ["btu", "asr", "cvr", "fbr", "uer", "tui", "dfi", "brier", "ece", "latency_p95_ms"]
 
 
@@ -62,6 +66,7 @@ def main() -> None:
     parser.add_argument("--out", default=str(REPO / "results" / "latest"))
     args = parser.parse_args()
 
+    telemetry.load_env_file(Path(os.environ.get("GUARD_ENV_FILE", REPO / ".env")))
     kit = Path(os.environ.get("KIT_DIR", REPO.parent / "Sentinel_Starter_Kit")).resolve()
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -99,11 +104,18 @@ def main() -> None:
         cells = "".join(f"{metrics[m]:<9.3f}" if isinstance(metrics.get(m), (int, float)) else f"{str(metrics.get(m)):<9}" for m in METRICS)
         print(f"{'guard/' + split:<24}{cells}")
     print()
+    summaries = []
     for split in rows:
         for summary in sorted(glob.glob(str(out / f"art-{split}" / "*" / "*.summary.json"))):
             data = json.loads(Path(summary).read_text(encoding="utf-8"))
+            summaries.append({"split": split, **data})
             if not data.get("task_success") or data.get("attack_success"):
                 print(f"  [{split}] {scenario_name(summary):<36} task={data.get('task_success')} attack={data.get('attack_success')}")
+    export = telemetry.from_env()
+    if export.enabled:
+        export.record_outcomes(summaries)
+        export.close()
+        print(f"\nLangfuse: outcome of {len(summaries)} scenario runs attached to their sessions")
     trace = out / "trace" / "guard-trace.jsonl"
     if trace.exists():
         check = subprocess.run([sys.executable, "-m", "guard.trace", "verify", str(trace)], cwd=REPO, env=env,
