@@ -30,7 +30,6 @@ from guard import dlp, memory
 from guard.contract import closes, compile_contract, is_read_tool, verb_of
 from guard.ledger import RunRegistry, RunState
 from guard.models import CandidateAction, DefenseDecision, DefenseRequest
-from guard.telemetry import Telemetry
 from guard.trace import Trace
 from guard.trust import ProvenanceIndex
 
@@ -107,11 +106,9 @@ def _sha8(value: str) -> str:
 class GuardDefense:
     name = "guard"
 
-    def __init__(self, config: Config | None = None, trace: Trace | None = None,
-                 telemetry: Telemetry | None = None) -> None:
+    def __init__(self, config: Config | None = None, trace: Trace | None = None) -> None:
         self.config = config or Config.from_env()
         self.trace = trace or Trace(None)
-        self.telemetry = telemetry or Telemetry()
         self.registry = RunRegistry()
         self._lock = threading.Lock()
 
@@ -291,7 +288,7 @@ class GuardDefense:
         }
 
     def _record(self, request: DefenseRequest, state: RunState, verdict: Verdict, latency_ms: float) -> None:
-        if self.trace.path is None and not self.telemetry.enabled:
+        if self.trace.path is None:
             return
         cand = request.candidate_action
         target = cand.confirmation_for if cand.confirmation_for is not None else cand
@@ -324,4 +321,3 @@ class GuardDefense:
             "latency_ms": round(latency_ms, 3),
         }
         self.trace.append(record)
-        self.telemetry.emit(record)
