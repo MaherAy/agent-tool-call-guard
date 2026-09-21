@@ -3,16 +3,32 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
+from guard import telemetry
 from guard.engine import GuardDefense
 from guard.models import DefenseDecision, DefenseRequest
 from guard.trace import Trace
 
 log = logging.getLogger("guard")
-app = FastAPI(title="guard", docs_url=None, redoc_url=None, openapi_url=None)
-defense = GuardDefense(trace=Trace.from_env())
+
+# A local, git-ignored .env may hold LANGFUSE_* settings; variables already in the environment win.
+telemetry.load_env_file(Path(os.environ.get("GUARD_ENV_FILE", ".env")))
+defense = GuardDefense(trace=Trace.from_env(), telemetry=telemetry.from_env())
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    defense.telemetry.close()  # flush buffered Langfuse spans; never on the request path
+
+
+app = FastAPI(title="agent-tool-call-guard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.get("/healthz")

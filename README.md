@@ -64,6 +64,30 @@ sentinel run --scenario <yaml> --defense-url http://127.0.0.1:8080
 
 Layers can be ablated with `GUARD_DISABLE=contract,grounding,dlp,reconstruction,memory_rules`.
 
+## Observability: sidecar trace and Langfuse (optional)
+
+Every decision is recorded twice. The **sidecar trace** (`GUARD_TRACE_DIR`) is a local hash-chained JSONL file and is the
+source of truth. **Langfuse** mirrors it so the decisions can be browsed: one *session* per agent run, one *trace* per
+decision (named `guard:<decision>:<tool>`), tagged with the decision, rule, tool and reason codes, with the evidence and
+latency in the metadata and `risk_score`, `confidence` and `decision` as scores you can filter on. Trace ids come from
+`guard:<run_id>:<step>`, so each sidecar line maps to one Langfuse trace.
+
+```bash
+pip install -e ".[langfuse]"
+cp .env.example .env            # git-ignored; fill in the keys of your Langfuse project (never commit them)
+python -m guard.telemetry check # verifies the keys and sends one sample decision (session "check-run")
+uvicorn guard.app:app --port 8080
+```
+
+- **Off by default.** Without `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` nothing is sent and no network call is
+  made. `LANGFUSE_TRACING_ENABLED=false` switches it off while keeping the keys.
+- **Never in the decision path.** Export is batched by the SDK on a background thread and errors are swallowed; a
+  decision never waits on, or fails because of, Langfuse. Tested with an unreachable server: decisions unchanged.
+- **What is sent.** Only what the sidecar record holds: rule, codes, a short explanation, truncated arguments and evidence
+  with protected values already removed. All data in this benchmark is synthetic.
+- **External service.** Langfuse Cloud is a third-party service; the team asked the organizers, who allowed it. Declare it
+  in the report. To keep everything offline, point `LANGFUSE_HOST` at a self-hosted instance instead.
+
 ## Results on the updated kit (mock agent, kit commit `dd2e5fe`, 21/09/2026)
 
 The updated kit adds 21 exfiltration scenarios (40 public scenarios: 31 attacks, 9 benign; plus 9 validation). Same

@@ -30,6 +30,7 @@ from guard import dlp, memory
 from guard.contract import closes, compile_contract, is_read_tool, verb_of
 from guard.ledger import RunRegistry, RunState
 from guard.models import CandidateAction, DefenseDecision, DefenseRequest
+from guard.telemetry import Telemetry
 from guard.trace import Trace
 from guard.trust import ProvenanceIndex
 
@@ -106,9 +107,11 @@ def _sha8(value: str) -> str:
 class GuardDefense:
     name = "guard"
 
-    def __init__(self, config: Config | None = None, trace: Trace | None = None) -> None:
+    def __init__(self, config: Config | None = None, trace: Trace | None = None,
+                 telemetry: Telemetry | None = None) -> None:
         self.config = config or Config.from_env()
         self.trace = trace or Trace(None)
+        self.telemetry = telemetry or Telemetry()
         self.registry = RunRegistry()
         self._lock = threading.Lock()
 
@@ -268,7 +271,7 @@ class GuardDefense:
         return True
 
     def _record(self, request: DefenseRequest, state: RunState, verdict: Verdict, latency_ms: float) -> None:
-        if self.trace.path is None:
+        if self.trace.path is None and not self.telemetry.enabled:
             return
         cand = request.candidate_action
         target = cand.confirmation_for if cand.confirmation_for is not None else cand
@@ -277,7 +280,12 @@ class GuardDefense:
             text = str(value)
             leaks = dlp.leaks_in(text, state.secrets.keys()) if state.secrets else []
             args[name] = (dlp.redact_text(text, leaks) if leaks else text)[:80]
-        self.trace.append({
+        evidence = dict(verdict.evidence)
+        span = evidence.get("span")
+        if isinstance(span, str) and state.secrets:  # observed text may quote a protected value
+            leaks = dlp.leaks_in(span, state.secrets.keys())
+            evidence["span"] = dlp.redact_text(span, leaks) if leaks else span
+        record = {
             "run_id": request.run_id,
             "step": request.step_id,
             "turn": request.history_digest.turn_index,
@@ -289,6 +297,8 @@ class GuardDefense:
             "codes": verdict.codes,
             "rule": verdict.rule,
             "explanation": verdict.explanation,
-            "evidence": verdict.evidence,
+            "evidence": evidence,
             "latency_ms": round(latency_ms, 3),
-        })
+        }
+        self.trace.append(record)
+        self.telemetry.emit(record)
