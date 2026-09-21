@@ -13,7 +13,7 @@ Rules this module follows:
 * Trace ids are derived from `guard:<run_id>:<step>`, so any line of the sidecar trace maps to one Langfuse trace.
 
 Configure through the environment (a git-ignored `.env` file works; see `.env.example`):
-    LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST (or your self-hosted URL), LANGFUSE_TRACING_ENVIRONMENT
+    LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL (your region's URL, or your self-hosted URL), LANGFUSE_TRACING_ENVIRONMENT
 
 Check a configuration without running the benchmark:
     python -m guard.telemetry check
@@ -126,11 +126,11 @@ def _check() -> int:
     load_env_file(Path(os.environ.get("GUARD_ENV_FILE", ".env")))
     telemetry = from_env()
     if not isinstance(telemetry, LangfuseTelemetry):
-        print("Langfuse is not configured: set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST "
+        print("Langfuse is not configured: set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL "
               "(and install the extra: pip install '.[langfuse]').")
         return 2
     ok = telemetry.auth_ok()
-    print(f"authentication: {'OK' if ok else 'FAILED (check the keys and LANGFUSE_HOST)'}")
+    print(f"authentication: {'OK' if ok else 'FAILED (check the keys and LANGFUSE_BASE_URL)'}")
     if ok:
         telemetry.emit({"run_id": "check-run", "step": 1, "turn": 0, "rule": "R0", "decision": "allow", "risk": 0.05,
                         "confidence": 0.7, "codes": ["USER_GOAL_ALIGNED"], "explanation": "Configuration check.",

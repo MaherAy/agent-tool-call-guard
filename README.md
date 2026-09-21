@@ -86,7 +86,7 @@ uvicorn guard.app:app --port 8080
 - **What is sent.** Only what the sidecar record holds: rule, codes, a short explanation, truncated arguments and evidence
   with protected values already removed. All data in this benchmark is synthetic.
 - **External service.** Langfuse Cloud is a third-party service; the team asked the organizers, who allowed it. Declare it
-  in the report. To keep everything offline, point `LANGFUSE_HOST` at a self-hosted instance instead.
+  in the report. To keep everything offline, point `LANGFUSE_BASE_URL` at a self-hosted instance instead.
 
 ## Results on the updated kit (mock agent, kit commit `dd2e5fe`, 21/09/2026)
 
