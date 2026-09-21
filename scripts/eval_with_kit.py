@@ -70,8 +70,11 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
 
     env = {**os.environ, "PYTHONPATH": str(REPO), "GUARD_TRACE_DIR": str(out / "trace"), "PYTHONUTF8": "1"}
+    # The defense service runs in the interpreter that launched this script (so optional extras such as langfuse are
+    # available); the kit's own interpreter is used only for the kit's commands. Override with GUARD_PY.
+    service_python = os.environ.get("GUARD_PY", sys.executable)
     server = subprocess.Popen(
-        [python, "-m", "uvicorn", "guard.app:app", "--port", str(port), "--log-level", "warning"],
+        [service_python, "-m", "uvicorn", "guard.app:app", "--port", str(port), "--log-level", "warning"],
         cwd=REPO, env=env,
     )
     try:
@@ -85,6 +88,9 @@ def main() -> None:
             subprocess.run(cmd, cwd=kit, env=env, stdout=subprocess.DEVNULL, check=True)
             rows[split] = json.loads(report.read_text(encoding="utf-8"))["metrics"]
     finally:
+        if os.environ.get("LANGFUSE_PUBLIC_KEY") or (REPO / ".env").exists():
+            print("waiting a few seconds for the Langfuse export to finish...")
+            time.sleep(8)  # terminate() does not run the service's shutdown, so let the SDK's batch go out first
         server.terminate()
         server.wait(timeout=10)
 
