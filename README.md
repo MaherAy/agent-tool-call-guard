@@ -67,10 +67,22 @@ Layers can be ablated with `GUARD_DISABLE=contract,grounding,dlp,reconstruction,
 ## Observability: sidecar trace and Langfuse (optional)
 
 Every decision is recorded twice. The **sidecar trace** (`GUARD_TRACE_DIR`) is a local hash-chained JSONL file and is the
-source of truth. **Langfuse** mirrors it so the decisions can be browsed: one *session* per agent run, one *trace* per
-decision (named `guard:<decision>:<tool>`), tagged with the decision, rule, tool and reason codes, with the evidence and
-latency in the metadata and `risk_score`, `confidence` and `decision` as scores you can filter on. Trace ids come from
-`guard:<run_id>:<step>`, so each sidecar line maps to one Langfuse trace.
+source of truth. **Langfuse** mirrors it so the decisions can be browsed:
+
+- one *session* per agent run (`session_id` = run id), one *trace* per screened action, named `screen-action` (a static
+  name; what varies is in tags, metadata and scores, so saved filters and dashboards stay stable);
+- the root observation has type `guardrail`, a readable **input** (`incident_update(incident_id=INC-0101, status=closed)`)
+  and a readable **output** (`BLOCK [PLAN_DEVIATION] risk 0.90, confidence 0.85. <explanation>`);
+- tags and filterable metadata carry the decision, rule, tool, reason codes and which layers were enabled (`layers` is
+  `all` or `without:contract,dlp` for ablation runs);
+- the observation metadata holds the structured detail: evidence, the raw action, and the **context the guard decided
+  with** (user goal, allowed and consequential tools, what the goal asked for or ruled out, least-trusted and
+  most-sensitive data seen so far);
+- `risk_score`, `confidence` and `decision` are scores you can filter and chart;
+- `environment` (`LANGFUSE_TRACING_ENVIRONMENT`) and `release` / `version` (`LANGFUSE_RELEASE`, default
+  `agent-tool-call-guard@<installed version>`) are set, so demo and test traces never mix and runs are comparable across
+  versions of the guard;
+- trace ids come from `guard:<environment>:<run_id>:<step>`, so each sidecar line maps to one Langfuse trace.
 
 ```bash
 pip install -e ".[langfuse]"
@@ -84,7 +96,9 @@ uvicorn guard.app:app --port 8080
 - **Never in the decision path.** Export is batched by the SDK on a background thread and errors are swallowed; a
   decision never waits on, or fails because of, Langfuse. Tested with an unreachable server: decisions unchanged.
 - **What is sent.** Only what the sidecar record holds: rule, codes, a short explanation, truncated arguments and evidence
-  with protected values already removed. All data in this benchmark is synthetic.
+  with protected values already removed, then masked a second time just before export (Langfuse's `mask_otel_spans` hook
+  replaces any secret-shaped token in inputs, outputs and status messages). All data in this benchmark is synthetic. No
+  user id is set because the SENTINEL protocol carries no user identity.
 - **External service.** Langfuse Cloud is a third-party service; the team asked the organizers, who allowed it. Declare it
   in the report. To keep everything offline, point `LANGFUSE_BASE_URL` at a self-hosted instance instead.
 

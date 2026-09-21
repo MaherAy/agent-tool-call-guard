@@ -270,6 +270,26 @@ class GuardDefense:
                 return False
         return True
 
+    def _context(self, request: DefenseRequest, state: RunState) -> dict[str, Any]:
+        """What the guard knew when it decided, so a decision can be audited later without the run."""
+        policy, digest = request.policy_context, request.history_digest
+        goal = request.user_goal[:300]
+        if state.secrets:
+            leaks = dlp.leaks_in(goal, state.secrets.keys())
+            goal = dlp.redact_text(goal, leaks) if leaks else goal
+        contract = compile_contract(request.user_goal) if self.config.contract else None
+        return {
+            "user_goal": goal,
+            "allowed_tools": sorted(policy.get("allowed_tools") or [])[:30],
+            "consequential_tools": sorted(policy.get("consequential_tools") or [])[:30],
+            "goal_asks_for": sorted(contract.affirmed) if contract else None,
+            "goal_rules_out": sorted(contract.negated) if contract else None,
+            "least_trusted_seen": digest.least_trusted_seen,
+            "most_sensitive_seen": digest.most_sensitive_seen,
+            "blocked_so_far": digest.blocked_count,
+            "escalated_so_far": digest.escalated_count,
+        }
+
     def _record(self, request: DefenseRequest, state: RunState, verdict: Verdict, latency_ms: float) -> None:
         if self.trace.path is None and not self.telemetry.enabled:
             return
@@ -298,6 +318,9 @@ class GuardDefense:
             "rule": verdict.rule,
             "explanation": verdict.explanation,
             "evidence": evidence,
+            "confirmed": action_digest(target) in request.history_digest.confirmations_granted,
+            "layers": {name: getattr(self.config, name) for name in LAYERS},
+            "context": self._context(request, state),
             "latency_ms": round(latency_ms, 3),
         }
         self.trace.append(record)

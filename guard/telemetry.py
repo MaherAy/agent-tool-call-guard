@@ -1,19 +1,31 @@
 """Optional export of decision records to Langfuse, for observability.
 
 The hash-chained sidecar trace (guard.trace) stays the source of truth; this module mirrors each decision to a
-Langfuse project so it can be browsed: one *session* per agent run, one *trace* per decision, with the rule, the
-reason codes, the evidence and the latency, plus `risk_score`, `confidence` and `decision` scores for filtering.
+Langfuse project so it can be browsed. It follows Langfuse's tracing best practices:
 
-Rules this module follows:
-* Off unless LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set (and LANGFUSE_TRACING_ENABLED is not false).
-* Never blocks and never raises into the decision path: a failure to export is logged at debug level only. Spans are
-  exported by the SDK on a background thread.
-* Sends only what the sidecar record already contains: secret values are redacted before a record is built, and
-  observed text is truncated. All data in this benchmark is synthetic.
-* Trace ids are derived from `guard:<run_id>:<step>`, so any line of the sidecar trace maps to one Langfuse trace.
+* One trace = one self-contained unit of work: the screening of ONE candidate action. One *session* = one agent run
+  (`session_id` = run_id), so the steps of a run are grouped in order.
+* Static, verb-first names (`screen-action`), never dynamic values. What varies (decision, rule, tool, reason codes) is
+  in tags, filterable metadata and scores, so names stay stable for dashboards, evaluators and saved filters.
+* Observation type `guardrail` (the most specific type for a check that can stop an action).
+* Readable input/output on the root observation (which populates the trace tables; `set_trace_io` is deprecated):
+  the attempted action as a one-line call, and the decision as a one-line verdict.
+  The structured detail (raw action, evidence, the context the guard had) lives in metadata.
+* Enough context to audit a decision later: the user's goal, the policy (allowed and consequential tools), what the goal
+  asked for or ruled out, what trust/sensitivity the run had seen, and which layers were enabled.
+* `environment`, `release` and `version` are set, so demo, test and production traces never mix and runs are comparable
+  across versions of the guard.
+* Sensitive data: protected values are redacted before a record is built, and `mask_otel_spans` masks any secret-shaped
+  token in inputs, outputs and status messages again just before export.
+* Trace ids are derived from `guard:<environment>:<run_id>:<step>`, so any line of the sidecar trace maps to one
+  Langfuse trace.
+
+Operating rules: off unless LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set (and LANGFUSE_TRACING_ENABLED is not
+false); never blocks and never raises into the decision path (the SDK exports on a background thread and the service
+shuts the client down, which flushes, on exit); no user id is set because the SENTINEL protocol carries no user identity.
 
 Configure through the environment (a git-ignored `.env` file works; see `.env.example`):
-    LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL (your region's URL, or your self-hosted URL), LANGFUSE_TRACING_ENVIRONMENT
+    LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL, LANGFUSE_TRACING_ENVIRONMENT, LANGFUSE_RELEASE
 
 Check a configuration without running the benchmark:
     python -m guard.telemetry check
@@ -23,12 +35,86 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
 
+from guard import dlp
+
 log = logging.getLogger("guard.telemetry")
 _OFF = {"0", "false", "no", "off"}
+SERVICE = "agent-tool-call-guard"
+SPAN_NAME = "screen-action"
+# `=` and `:` separate a key from its value (`alert_id=AL-3003`), so the key and the value are judged on their own
+# instead of being mistaken, together, for one long random-looking secret.
+_TOKEN = re.compile(r"[^\s\"',;<>()\[\]{}=:]+")
+# Attributes that carry free text. Identifiers that group traces (session id, trace name, tags) are never masked.
+_MASKED_ATTRIBUTES = ("input", "output", "status_message")
+
+
+def release() -> str:
+    """The version of the guard that produced a trace, so runs can be compared across versions."""
+    explicit = os.environ.get("LANGFUSE_RELEASE")
+    if explicit:
+        return explicit
+    try:
+        return f"{SERVICE}@{importlib_metadata.version(SERVICE)}"
+    except importlib_metadata.PackageNotFoundError:
+        return f"{SERVICE}@dev"
+
+
+def describe_action(action: dict[str, Any]) -> str:
+    """The attempted action as one readable line, e.g. `incident_update(incident_id=INC-0101, status=closed)`."""
+    kind, tool, args = action["type"], action.get("tool"), action.get("args") or {}
+
+    def call() -> str:
+        items = list(args.items())
+        shown = ", ".join(f"{key}={str(value)[:40]}" for key, value in items[:4])
+        return f"{tool}({shown}{', ...' if len(items) > 4 else ''})"
+
+    if kind == "tool_call":
+        return call()
+    if kind == "request_confirmation":
+        return f"ask a human to confirm {call()}"
+    if kind == "respond":
+        return f"reply to the user ({action.get('content_chars', 0)} characters)"
+    if kind == "memory_write":
+        return f"write to memory ({action.get('content_chars', 0)} characters)"
+    return str(kind)
+
+
+def describe_verdict(record: dict[str, Any]) -> str:
+    codes = ", ".join(record["codes"])
+    return (f"{record['decision'].upper()} [{codes}] risk {record['risk']:.2f}, confidence {record['confidence']:.2f}. "
+            f"{record['explanation']}")
+
+
+def mask_text(text: str) -> str:
+    """Replace secret-shaped tokens (long, mixed character classes, high entropy) with a marker."""
+    for raw in set(_TOKEN.findall(text)):
+        token = raw.strip(".,:;!?\"'")
+        if dlp.secret_like(token):
+            text = text.replace(token, dlp.REDACTION)
+    return text
+
+
+def mask_otel_spans(*, params: Any) -> Any:
+    """Langfuse's recommended masking hook: patch exported span attributes before they leave the process."""
+    from langfuse.types import MaskOtelSpansResult, OtelSpanPatch
+
+    patches = {}
+    for identifier, span in params.spans.items():
+        replacements = {}
+        for key, value in span.attributes.items():
+            if isinstance(value, str) and any(part in key for part in _MASKED_ATTRIBUTES):
+                masked = mask_text(value)
+                if masked != value:
+                    replacements[key] = masked
+        if replacements:
+            patches[identifier] = OtelSpanPatch(set_attributes=replacements)
+    return MaskOtelSpansResult(span_patches=patches)
 
 
 class Telemetry:
@@ -46,9 +132,12 @@ class Telemetry:
 class LangfuseTelemetry(Telemetry):
     enabled = True
 
-    def __init__(self, client: Any, propagate_attributes: Any) -> None:
+    def __init__(self, client: Any, propagate_attributes: Any, environment: str = "development",
+                 release_tag: str | None = None) -> None:
         self._client = client
         self._propagate = propagate_attributes
+        self._environment = environment
+        self._release = release_tag or release()
 
     def emit(self, record: dict[str, Any]) -> None:
         try:
@@ -60,24 +149,40 @@ class LangfuseTelemetry(Telemetry):
         action = record["action"]
         tool = action.get("tool") or action["type"]
         decision = record["decision"]
-        trace_id = self._client.create_trace_id(seed=f"guard:{record['run_id']}:{record['step']}")
+        layers = record.get("layers") or {}
+        disabled = sorted(name for name, on in layers.items() if not on)
+        run_id = str(record["run_id"])
+        trace_id = self._client.create_trace_id(seed=f"guard:{self._environment}:{run_id}:{record['step']}")
         tags = ["agent-tool-call-guard", f"decision:{decision}", f"rule:{record['rule']}", f"tool:{tool}",
                 *[f"code:{code}" for code in record["codes"][:8]]]
+        filterable = {"run_id": run_id, "step": str(record["step"]), "turn": str(record["turn"]),
+                      "decision": decision, "rule": str(record["rule"]), "tool": str(tool),
+                      "layers": "without:" + ",".join(disabled) if disabled else "all"}
+        attempted, verdict = describe_action(action), describe_verdict(record)
         with self._propagate(
-            trace_name=f"guard:{decision}:{tool}",
-            session_id=str(record["run_id"])[:200],
+            trace_name=SPAN_NAME,
+            session_id=run_id[:200],
+            version=self._release,
             tags=[tag[:200] for tag in tags],
-            metadata={"run_id": str(record["run_id"])[:200], "step": str(record["step"]), "turn": str(record["turn"])},
+            metadata={key: value[:200] for key, value in filterable.items()},
         ):
             span = self._client.start_observation(
                 trace_context={"trace_id": trace_id},
-                name="guard.decision",
+                name=SPAN_NAME,
                 as_type="guardrail",
-                input={"action": action},
-                output={"decision": decision, "risk_score": record["risk"], "confidence": record["confidence"],
-                        "reason_codes": record["codes"], "rule": record["rule"], "explanation": record["explanation"]},
-                metadata={"evidence": record["evidence"], "latency_ms": record["latency_ms"]},
+                input=attempted,
+                output=verdict,
+                metadata={
+                    "decision": {"decision": decision, "rule": record["rule"], "reason_codes": record["codes"],
+                                 "risk_score": record["risk"], "confidence": record["confidence"],
+                                 "confirmed": record.get("confirmed", False)},
+                    "evidence": record["evidence"],
+                    "context": record.get("context", {}),
+                    "raw_action": action,
+                    "latency_ms": record["latency_ms"],
+                },
                 level="DEFAULT" if decision == "allow" else "WARNING",
+                status_message=None if decision == "allow" else record["explanation"][:300],
             )
             span.score_trace(name="risk_score", value=float(record["risk"]), data_type="NUMERIC")
             span.score_trace(name="confidence", value=float(record["confidence"]), data_type="NUMERIC")
@@ -118,8 +223,10 @@ def from_env() -> Telemetry:
     except ImportError:
         log.warning("LANGFUSE_* is set but the langfuse package is not installed; run: pip install '.[langfuse]'")
         return Telemetry()
-    client = Langfuse(environment=os.environ.get("LANGFUSE_TRACING_ENVIRONMENT", "development"))
-    return LangfuseTelemetry(client, propagate_attributes)
+    environment = os.environ.get("LANGFUSE_TRACING_ENVIRONMENT", "development")
+    tag = release()
+    client = Langfuse(environment=environment, release=tag, mask_otel_spans=mask_otel_spans)
+    return LangfuseTelemetry(client, propagate_attributes, environment=environment, release_tag=tag)
 
 
 def _check() -> int:
