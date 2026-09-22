@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 
 from guard.engine import GuardDefense
+from guard.judge.client import JudgeClient, JudgeConfig
 from guard.models import DefenseDecision, DefenseRequest
 from guard.trace import Trace
 
 log = logging.getLogger("guard")
 
-defense = GuardDefense(trace=Trace.from_env())
+
+def _judge_from_env() -> JudgeClient | None:
+    """Off by default: Stage 2 only calls Ollama when GUARD_JUDGE_ENABLED is truthy, so a plain `uvicorn
+    guard.app:app` never makes a network call on its own and every ambiguous case uses guard.judge.fallback."""
+    if os.environ.get("GUARD_JUDGE_ENABLED", "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    return JudgeClient(JudgeConfig.from_env())
+
+
+defense = GuardDefense(trace=Trace.from_env(), judge=_judge_from_env())
 
 app = FastAPI(title="agent-tool-call-guard", docs_url=None, redoc_url=None, openapi_url=None)
 
