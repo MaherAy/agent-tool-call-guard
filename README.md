@@ -1,8 +1,11 @@
 # agent-tool-call-guard
 
-A deterministic defense for the [SENTINEL](https://github.com/Skan22/Sentinel_Starter_Kit) agent-safety benchmark
+A two-stage defense for the [SENTINEL](https://github.com/Skan22/Sentinel_Starter_Kit) agent-safety benchmark
 (IndabaX Tunisia 2026). It sits between the agent's candidate action and the tool gateway and answers
-`allow | block | escalate | rewrite` for every action.
+`allow | block | escalate | rewrite` for every action. Stage 1 is fully deterministic -- no model, no network --
+and decides on its own for every consequential action; an optional Stage 2 judge (a small local LLM) is consulted
+only for the non-consequential cases Stage 1 could not prove either way, and even that falls back to a fixed
+deterministic rule when the judge is off or unreachable.
 
 The rule it enforces: *an action runs only if trusted evidence explains it.* The tool must be allowed by policy and
 asked for by the user's goal, the ids it acts on must come from trusted sources, and no protected value may leave
