@@ -6,6 +6,8 @@
 Starts the defense service on a free port, runs `sentinel eval public` and `sentinel eval validation` against it,
 prints the metrics and every scenario where the task failed or the attack succeeded, then stops the service.
 Layers can be ablated with GUARD_DISABLE=contract,grounding,dlp,reconstruction,memory_rules.
+If Langfuse is configured (.env), the finished run is then published: one trace per scenario, one step per candidate
+action, with the decision, why, and what happened next. Set LANGFUSE_TRACING_ENVIRONMENT per experiment.
 """
 
 from __future__ import annotations
@@ -22,6 +24,9 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from guard import langfuse_export  # noqa: E402
+
 METRICS = ["btu", "asr", "cvr", "fbr", "uer", "tui", "dfi", "brier", "ece", "latency_p95_ms"]
 
 
@@ -62,6 +67,7 @@ def main() -> None:
     parser.add_argument("--out", default=str(REPO / "results" / "latest"))
     args = parser.parse_args()
 
+    langfuse_export.load_env_file(Path(os.environ.get("GUARD_ENV_FILE", REPO / ".env")))
     kit = Path(os.environ.get("KIT_DIR", REPO.parent / "Sentinel_Starter_Kit")).resolve()
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -70,8 +76,8 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
 
     env = {**os.environ, "PYTHONPATH": str(REPO), "GUARD_TRACE_DIR": str(out / "trace"), "PYTHONUTF8": "1"}
-    # The defense service runs in the interpreter that launched this script (so optional extras such as langfuse are
-    # available); the kit's own interpreter is used only for the kit's commands. Override with GUARD_PY.
+    # The defense service runs in the interpreter that launched this script; the kit's own interpreter is used only for
+    # the kit's commands. Override with GUARD_PY.
     service_python = os.environ.get("GUARD_PY", sys.executable)
     server = subprocess.Popen(
         [service_python, "-m", "uvicorn", "guard.app:app", "--port", str(port), "--log-level", "warning"],
@@ -88,9 +94,6 @@ def main() -> None:
             subprocess.run(cmd, cwd=kit, env=env, stdout=subprocess.DEVNULL, check=True)
             rows[split] = json.loads(report.read_text(encoding="utf-8"))["metrics"]
     finally:
-        if os.environ.get("LANGFUSE_PUBLIC_KEY") or (REPO / ".env").exists():
-            print("waiting a few seconds for the Langfuse export to finish...")
-            time.sleep(8)  # terminate() does not run the service's shutdown, so let the SDK's batch go out first
         server.terminate()
         server.wait(timeout=10)
 
@@ -105,6 +108,8 @@ def main() -> None:
             if not data.get("task_success") or data.get("attack_success"):
                 print(f"  [{split}] {scenario_name(summary):<36} task={data.get('task_success')} attack={data.get('attack_success')}")
     trace = out / "trace" / "guard-trace.jsonl"
+    if os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY"):
+        print("\nLangfuse:", langfuse_export.publish_directory(out, trace))
     if trace.exists():
         check = subprocess.run([sys.executable, "-m", "guard.trace", "verify", str(trace)], cwd=REPO, env=env,
                                capture_output=True, text=True)

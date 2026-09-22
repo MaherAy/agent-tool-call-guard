@@ -4,31 +4,28 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 
-from guard import telemetry
 from guard.engine import GuardDefense
+from guard.judge.client import JudgeClient, JudgeConfig
 from guard.models import DefenseDecision, DefenseRequest
 from guard.trace import Trace
 
 log = logging.getLogger("guard")
 
-# A local, git-ignored .env may hold LANGFUSE_* settings; variables already in the environment win.
-telemetry.load_env_file(Path(os.environ.get("GUARD_ENV_FILE", ".env")))
-defense = GuardDefense(trace=Trace.from_env(), telemetry=telemetry.from_env())
+
+def _judge_from_env() -> JudgeClient | None:
+    """Off by default: Stage 2 only calls Ollama when GUARD_JUDGE_ENABLED is truthy, so a plain `uvicorn
+    guard.app:app` never makes a network call on its own and every ambiguous case uses guard.judge.fallback."""
+    if os.environ.get("GUARD_JUDGE_ENABLED", "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    return JudgeClient(JudgeConfig.from_env())
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    yield
-    defense.telemetry.close()  # flush buffered Langfuse spans; never on the request path
+defense = GuardDefense(trace=Trace.from_env(), judge=_judge_from_env())
 
-
-app = FastAPI(title="agent-tool-call-guard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app = FastAPI(title="agent-tool-call-guard", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.get("/healthz")

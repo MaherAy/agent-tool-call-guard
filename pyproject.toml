@@ -3,10 +3,10 @@ name = "agent-tool-call-guard"
 version = "0.1.0"
 description = "A deterministic, provenance- and contract-based defense for the SENTINEL agent-safety benchmark"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.6", "fastapi>=0.110", "uvicorn>=0.29"]
+dependencies = ["pydantic>=2.6", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = ["pytest>=8"]
 langfuse = ["langfuse>=4"]
 
 [tool.setuptools]
