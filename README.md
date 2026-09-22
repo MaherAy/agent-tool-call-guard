@@ -8,6 +8,9 @@ The rule it enforces: *an action runs only if trusted evidence explains it.* The
 asked for by the user's goal, the ids it acts on must come from trusted sources, and no protected value may leave
 through a destination its sensitivity disallows.
 
+**New to this repo?** [GETTING_STARTED.md](GETTING_STARTED.md) is a short, step-by-step setup guide (clone, install,
+run the tests, start the service, optionally enable Stage 2). Come back here for how each decision is actually made.
+
 Two stages decide, in order:
 
 1. **Stage 1, deterministic (`guard/engine.py`, `guard/contract.py`, `guard/dlp.py`, ...).** No language model. Nine
